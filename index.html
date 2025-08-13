@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WeatherBot AI</title>
+  <style>
+    body { font-family: Arial, sans-serif; background: #f5f5f5; display: flex; justify-content: center; }
+    .chat-container { width: 400px; background: white; border-radius: 10px; overflow: hidden; display: flex; flex-direction: column; height: 90vh; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    .chat-box { flex: 1; padding: 10px; overflow-y: auto; }
+    .message { margin: 10px 0; }
+    .user { text-align: right; }
+    .user span { background: #007bff; color: white; padding: 8px 12px; border-radius: 10px; display: inline-block; }
+    .bot span { background: #eee; padding: 8px 12px; border-radius: 10px; display: inline-block; }
+    .input-area { display: flex; border-top: 1px solid #ddd; }
+    .input-area input { flex: 1; padding: 10px; border: none; outline: none; }
+    .input-area button { background: #007bff; color: white; border: none; padding: 10px 15px; cursor: pointer; }
+    /* Forecast Card Styles */
+    .forecast-container { display: flex; justify-content: space-between; margin-top: 8px; }
+    .forecast-card { background: #f9f9f9; border-radius: 8px; padding: 8px; text-align: center; width: 22%; font-size: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+    .forecast-card img { width: 40px; height: 40px; }
+    .forecast-date { font-weight: bold; margin-bottom: 4px; }
+    .forecast-temp { margin-top: 4px; font-size: 14px; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+<div class="chat-container">
+  <div id="chat" class="chat-box"></div>
+  <div class="input-area">
+    <input type="text" id="userInput" placeholder="Ask about the weather...">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+</div>
+
+<script>
+const API_KEY = "14e2a57073f911db6c8fc61872964f3c"; // Replace with your key
+let lastCity = null;
+
+function addMessage(text, sender, htmlContent = null) {
+    const chat = document.getElementById('chat');
+    const message = document.createElement('div');
+    message.className = `message ${sender}`;
+    message.innerHTML = `<span>${text}</span>`;
+    if (htmlContent) {
+        message.appendChild(htmlContent);
+    }
+    chat.appendChild(message);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+async function getWeather(city) {
+    const url = `https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=${API_KEY}&units=metric`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.cod === 200) {
+        lastCity = city;
+        return `The weather in ${city} is ${data.weather[0].description} with ${data.main.temp}°C.`;
+    } else {
+        return `❌ Sorry, I couldn't find weather for '${city}'.`;
+    }
+}
+
+async function get4DayForecast(city) {
+    const url = `https://api.openweathermap.org/data/2.5/forecast?q=${city}&appid=${API_KEY}&units=metric`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.cod !== "200") {
+        return null;
+    }
+
+    const forecastContainer = document.createElement('div');
+    forecastContainer.className = "forecast-container";
+
+    // Pick approx midday forecast for next 4 days
+    const daily = {};
+    data.list.forEach(item => {
+        const date = item.dt_txt.split(" ")[0];
+        if (!daily[date] && item.dt_txt.includes("12:00:00")) {
+            daily[date] = item;
+        }
+    });
+
+    const dates = Object.keys(daily).slice(1, 5); // Skip today, get next 4 days
+    dates.forEach(date => {
+        const item = daily[date];
+        const card = document.createElement('div');
+        card.className = "forecast-card";
+
+        const dateObj = new Date(date);
+        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
+
+        card.innerHTML = `
+            <div class="forecast-date">${dayName}</div>
+            <img src="https://openweathermap.org/img/wn/${item.weather[0].icon}@2x.png" alt="">
+            <div>${item.weather[0].description}</div>
+            <div class="forecast-temp">${Math.round(item.main.temp)}°C</div>
+        `;
+
+        forecastContainer.appendChild(card);
+    });
+
+    return forecastContainer;
+}
+
+async function getTomorrowWeather(city) {
+    const url = `https://api.openweathermap.org/data/2.5/forecast?q=${city}&appid=${API_KEY}&units=metric`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.cod === "200") {
+        lastCity = city;
+        const tomorrowData = data.list[8];
+        return `The weather in ${city} tomorrow will be ${tomorrowData.weather[0].description} with ${tomorrowData.main.temp}°C.`;
+    } else {
+        return `❌ Sorry, I couldn't get the forecast for '${city}'.`;
+    }
+}
+
+async function handleQuery(query) {
+    query = query.toLowerCase();
+    let city = null;
+    const tomorrowWords = ["tomorrow", "tommorow", "tommorrow", "tmrw"];
+    const wantsTomorrow = tomorrowWords.some(word => query.includes(word));
+
+    const match = query.match(/in\s+([a-z\s]+)/i);
+    if (match) {
+        city = match[1].trim();
+    } else {
+        const words = query.split(" ");
+        if (words.length === 1 && !tomorrowWords.includes(words[0])) {
+            city = words[0];
+        }
+    }
+
+    if (!city && lastCity) city = lastCity;
+
+    if (wantsTomorrow && city) {
+        return { text: await getTomorrowWeather(city), city };
+    } else if (city) {
+        return { text: await getWeather(city), city };
+    } else {
+        return { text: "Please tell me which city.", city: null };
+    }
+}
+
+async function sendMessage() {
+    const input = document.getElementById('userInput');
+    const text = input.value.trim();
+    if (!text) return;
+    addMessage(text, 'user');
+    input.value = '';
+
+    const { text: reply, city } = await handleQuery(text);
+
+    let forecastHTML = null;
+    if (city) {
+        forecastHTML = await get4DayForecast(city);
+    }
+
+    addMessage(reply, 'bot', forecastHTML);
+}
+</script>
+
+</body>
+</html>
